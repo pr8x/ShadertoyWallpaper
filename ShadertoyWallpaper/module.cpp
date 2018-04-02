@@ -33,7 +33,7 @@ void main()
 }
 )";
 
-stw::Module::Module(const std::string& file) {
+stw::Module::Module(const Api& api, const std::string& shaderId) {
 	_handle = glCreateProgram();
 	_vs = glCreateShader(GL_VERTEX_SHADER);
 	_fs = glCreateShader(GL_FRAGMENT_SHADER);
@@ -41,13 +41,11 @@ stw::Module::Module(const std::string& file) {
 	glShaderSource(_vs, 1, &kVertexSource, NULL);
 	glCompileShader(_vs);
 
-	std::ifstream stream(file);
-	std::stringstream buffer;
-	buffer << stream.rdbuf();
-	auto bufferStr = buffer.str();
+	auto ap = api.load_shader(shaderId);
+	std::cout << "Loading shader " << shaderId << " by " << ap.author << std::endl;
 
-	const GLchar* frag_parts[] = { kFragmentSource_Header,  bufferStr.c_str(),  kFragmentSource_Body };
-	glShaderSource(_fs, 3, frag_parts, NULL);
+	const GLchar* fragParts[] = { kFragmentSource_Header,  ap.buffer.c_str(),  kFragmentSource_Body };
+	glShaderSource(_fs, 3, fragParts, NULL);
 	glCompileShader(_fs);
 
 	glAttachShader(_handle, _vs);
@@ -61,8 +59,6 @@ stw::Module::Module(const std::string& file) {
 		glGetProgramInfoLog(_handle, sizeof(infoLog), NULL, infoLog);
 		throw std::runtime_error(infoLog);
 	}
-
-	std::cout << "Module (" << file << ") loaded." << std::endl;
 }
 
 stw::Module::~Module() {
@@ -71,10 +67,6 @@ stw::Module::~Module() {
 	glDeleteShader(_vs);
 	glDeleteShader(_fs);
 	glDeleteProgram(_handle);
-}
-
-void stw::Module::load_sampler(const Sampler& sampler) {
-	
 }
 
 void stw::Module::render(const Uniform& data) const {

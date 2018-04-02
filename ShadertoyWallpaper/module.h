@@ -1,7 +1,8 @@
 #pragma once
 #include <glew.h>
 #include <string>
-#include "sampler.h"
+
+#include "api.h"
 
 namespace stw
 {
@@ -12,10 +13,9 @@ namespace stw
 			float vpx, vpy;
 		};
 
-		Module(const std::string& file);
+		Module(const Api& api, const std::string& shaderId);
 		~Module();
 		
-		void load_sampler(const Sampler& sampler);
 		void render(const Uniform& data) const;
 
 	private:

@@ -10,7 +10,7 @@ stw::Graphics::Graphics() {
 
 	SendMessageTimeout(_progman, 0x052C, NULL, NULL, SMTO_NORMAL, 1000, NULL);
 
-	EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(this));
+	EnumWindows(FindShellDefView, reinterpret_cast<LPARAM>(this));
 	if (_worker == NULL)
 		throw std::runtime_error("Failed to spawn worker");
 
@@ -23,29 +23,41 @@ stw::Graphics::Graphics() {
 
 stw::Graphics::~Graphics() {
 	ReleaseDC(_worker, _context);
+	wglDeleteContext(_glContext);
+	wglMakeCurrent(NULL, NULL);
 }
 
 void stw::Graphics::run(const Module& module) {
 	_timestamp = std::chrono::high_resolution_clock::now();
+	_lastFrame = std::chrono::high_resolution_clock::now();
 
 	GLint vp[4];
 	glGetIntegerv(GL_VIEWPORT, vp);
 
 	for (;;) {
+		if (detect_fs_window()) //don't render when fs app is running
+			continue;
+
 		glClear(GL_COLOR_BUFFER_BIT);
 
 		auto current = std::chrono::high_resolution_clock::now();
-		auto span = current - _timestamp;
-		auto fsec = std::chrono::duration_cast<std::chrono::duration<float>>(span);
+		auto time_span = current - _timestamp;
+		auto time = std::chrono::duration_cast<std::chrono::duration<float>>(time_span);
 
 		Module::Uniform data{
-			fsec.count(), //timestamp,
-			vp[2], vp[3] //viewport
+			time.count(), //timestamp,
+			static_cast<float>(vp[2]), static_cast<float>(vp[3]) //viewport
 		};
 		module.render(data);
 
 		if (!SwapBuffers(_context))
 			throw std::runtime_error("SwapBuffers() failed");
+
+		auto delta_span = current - _lastFrame;
+		auto delta = std::chrono::duration_cast<std::chrono::duration<float>>(delta_span);
+		std::cout << 1.0f / delta.count() << "fps\r" << std::flush;
+
+		_lastFrame = current;
 	}
 }
 
@@ -64,8 +76,8 @@ void stw::Graphics::init_opengl() {
 	if (!::SetPixelFormat(_context, pxFormat, &pfd))
 		throw std::runtime_error("SetPixelFormat() failed");
 
-	HGLRC tmpCtx = wglCreateContext(_context);
-	if (!wglMakeCurrent(_context, tmpCtx))
+	_glContext = wglCreateContext(_context);
+	if (!wglMakeCurrent(_context, _glContext))
 		throw std::runtime_error("wglMakeCurrent() failed");
 
 	GLenum err = glewInit();
@@ -73,6 +85,12 @@ void stw::Graphics::init_opengl() {
 		throw std::runtime_error(
 			reinterpret_cast<const char*>(glewGetErrorString(err)));
 	}
+}
+
+bool stw::Graphics::detect_fs_window() {
+	bool fsWindow = false;
+	EnumWindows(DetectFSWindow, reinterpret_cast<LPARAM>(&fsWindow));
+	return fsWindow;
 }
 
 //void stw::Graphics::blit() {
@@ -97,12 +115,48 @@ void stw::Graphics::init_opengl() {
 //	DeleteDC(memDC);
 //}
 
-BOOL CALLBACK stw::Graphics::EnumWindowsProc(HWND hwnd, LPARAM lparam) {
+BOOL CALLBACK stw::Graphics::FindShellDefView(HWND hwnd, LPARAM lparam) {
 	Graphics* instance = reinterpret_cast<Graphics*>(lparam);
 
 	HWND shellView = FindWindowEx(hwnd, NULL, "SHELLDLL_DefView", NULL);
 	if (shellView != NULL) {
 		instance->_worker = FindWindowEx(NULL, hwnd, "WorkerW", NULL);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+BOOL CALLBACK stw::Graphics::DetectFSWindow(HWND hwnd, LPARAM lparam) {
+
+	if (!IsWindowVisible(hwnd) || IsIconic(hwnd))
+		return TRUE;
+
+	//LONG wl = GetWindowLong(hwnd, -8); //GWL_HWNDPARENT
+	//if (wl != 0 && wl != reinterpret_cast<LONG>(GetDesktopWindow()))
+	//	return TRUE;
+
+	int cloakedVal;
+	//https://stackoverflow.com/questions/32149880/how-to-identify-windows-10-background-store-processes-that-have-non-displayed-wi
+	HRESULT hRes = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloakedVal, sizeof(cloakedVal));
+	if (hRes != S_OK || cloakedVal)
+		return TRUE;
+
+	const int sw = GetSystemMetrics(SM_CXSCREEN) - 200;
+	const int sh = GetSystemMetrics(SM_CYSCREEN) - 200;
+
+	RECT appBounds;
+	GetWindowRect(hwnd, &appBounds);
+	auto appHeight = appBounds.bottom - appBounds.top;
+	auto appWidth = appBounds.right - appBounds.left;
+
+	char windowTitle[100];
+	GetWindowText(hwnd, windowTitle, sizeof(windowTitle));
+	if (strlen(windowTitle) == 0 || strcmp(windowTitle, "Program Manager") == 0)
+		return TRUE;
+
+	if (appWidth >= sw && appHeight >= sh) {
+		*reinterpret_cast<bool*>(lparam) = true;
 		return FALSE;
 	}
 
