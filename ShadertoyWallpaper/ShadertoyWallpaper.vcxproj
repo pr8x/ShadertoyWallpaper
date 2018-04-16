@@ -125,12 +125,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="api.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="module.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="api.cpp" />
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="module.cpp" />

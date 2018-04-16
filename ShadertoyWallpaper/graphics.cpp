@@ -35,8 +35,11 @@ void stw::Graphics::run(const Module& module) {
 	glGetIntegerv(GL_VIEWPORT, vp);
 
 	for (;;) {
-		if (detect_fs_window()) //don't render when fs app is running
+		if (detect_fs_window()) {
+			//don't render when fs app is running
+			Sleep(100);
 			continue;
+		}
 
 		glClear(GL_COLOR_BUFFER_BIT);
 
@@ -45,8 +48,7 @@ void stw::Graphics::run(const Module& module) {
 		auto time = std::chrono::duration_cast<std::chrono::duration<float>>(time_span);
 
 		Module::Uniform data{
-			time.count(), //timestamp,
-			static_cast<float>(vp[2]), static_cast<float>(vp[3]) //viewport
+			time.count(), //timestamp
 		};
 		module.render(data);
 

@@ -5,106 +5,190 @@
 #include <sstream>
 #include <vector>
 
-static const GLchar* kVertexSource = R"(
-varying out vec2 fragUV;
+static const GLchar* module_vertex_source = R"(
+#version 130
+in vec3 vertex;
+in vec2 uv;
+out vec2 _stw_uv;
+
 uniform vec2 iResolution;
 
-void main()
-{
-	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-	fragUV = gl_MultiTexCoord0.xy * iResolution;
+void main() {
+	_stw_uv = uv * iResolution;
+	gl_Position = vec4(vertex, 1);
 }
 )";
 
-static const GLchar* kFragmentSource_Header = R"(
-varying in vec2 fragUV;
-varying out vec4 outColor;
+static const GLchar* module_frag_source = R"(
+#version 130
+in vec2 _stw_uv;
+out vec4 _stw_color;
 
 uniform float iTime;
 uniform vec2 iResolution;
 )";
 
-static const GLchar* kFragmentSource_Body = R"(
-void main()
-{
-	vec4 _stout;
-	mainImage(_stout, fragUV);
-	outColor = _stout;
+static const GLchar* module_frag_body_source = R"(
+void main() {
+	vec4 _stw_out;
+	mainImage(_stw_out, _stw_uv);
+	_stw_color = _stw_out;
 }
 )";
 
-stw::Module::Module(const Api& api, const std::string& shaderId) {
-	_handle = glCreateProgram();
-	_vs = glCreateShader(GL_VERTEX_SHADER);
-	_fs = glCreateShader(GL_FRAGMENT_SHADER);
+static const GLchar* screen_vertex_source = R"(
+#version 130
+in vec3 vertex;
+in vec2 uv;
+out vec2 fragUV;
 
-	glShaderSource(_vs, 1, &kVertexSource, NULL);
-	glCompileShader(_vs);
+void main() {
+	fragUV = uv;
+	gl_Position = vec4(vertex, 1);
+}
+)";
 
-	auto ap = api.load_shader(shaderId);
-	std::cout << "Loading shader " << shaderId << " by " << ap.author << std::endl;
+static const GLchar* screen_frag_source = R"(
+#version 130
+in vec2 fragUV;
+out vec4 color;
 
-	const GLchar* fragParts[] = { kFragmentSource_Header,  ap.buffer.c_str(),  kFragmentSource_Body };
-	glShaderSource(_fs, 3, fragParts, NULL);
-	glCompileShader(_fs);
+uniform sampler2D rt;
 
-	glAttachShader(_handle, _vs);
-	glAttachShader(_handle, _fs);
-	glLinkProgram(_handle);
+void main() {
+	color = texture(rt, fragUV);
+}
+)";
 
-	GLint success;
-	char infoLog[512];
-	glGetProgramiv(_handle, GL_LINK_STATUS, &success);
-	if (!success) {
-		glGetProgramInfoLog(_handle, sizeof(infoLog), NULL, infoLog);
-		throw std::runtime_error(infoLog);
-	}
+
+stw::Module::Module(const Resolution& res, const std::string& file) : _res(res) {
+
+	std::ifstream ifs(file);
+	std::stringstream buffer;
+	buffer << ifs.rdbuf();
+
+	std::string fragSource;
+	fragSource += module_frag_source;
+	fragSource += buffer.str();
+	fragSource += module_frag_body_source;
+	
+	_module_prog = load_program(module_vertex_source, fragSource.c_str());
+	_screen_prog = load_program(screen_vertex_source, screen_frag_source);
+
+	init_vbo();
+	init_fbo();
+
+	std::cout << "module " << file << " loaded" <<  std::endl;
 }
 
 stw::Module::~Module() {
-	glDetachShader(_handle, _vs);
-	glDetachShader(_handle, _fs);
-	glDeleteShader(_vs);
-	glDeleteShader(_fs);
-	glDeleteProgram(_handle);
+	glDeleteProgram(_module_prog);
 }
 
 void stw::Module::render(const Uniform& data) const {
-	glUseProgram(_handle);
 
-	GLint tsLoc = glGetUniformLocation(_handle, "iTime");
-	glUniform1f(tsLoc, data.timestamp);
+	glBindFramebuffer(GL_FRAMEBUFFER, _fbo);
+	glPushAttrib(GL_VIEWPORT_BIT);
+	glViewport(0, 0, _res.x, _res.y);
+	{
+		glUseProgram(_module_prog);
+		GLint tsLoc = glGetUniformLocation(_module_prog, "iTime");
+		glUniform1f(tsLoc, data.timestamp);
+		GLint rsLoc = glGetUniformLocation(_module_prog, "iResolution");
+		glUniform2f(rsLoc, _res.x, _res.y);
+
+		glBindVertexArray(_vao);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
+	}
+	glPopAttrib();
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	glUseProgram(_screen_prog);
+	glBindTexture(GL_TEXTURE_2D, _rt);
+	glBindVertexArray(_vao);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindVertexArray(0);
+}
+
+GLuint stw::Module::load_program(const char* vertex, const char* fragment) {
+	auto prog = glCreateProgram();
+	auto vs = glCreateShader(GL_VERTEX_SHADER);
+	auto fs = glCreateShader(GL_FRAGMENT_SHADER);
+	GLint success;
+	char infoLog[512];
+
+	glShaderSource(vs, 1, &vertex, NULL);
+	glCompileShader(vs);
+
+	glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		glGetShaderInfoLog(vs, sizeof(infoLog), NULL, infoLog);
+		throw std::runtime_error(infoLog);
+	}
+
+	glShaderSource(fs, 1, &fragment, NULL);
+	glCompileShader(fs);
+
+	glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		glGetShaderInfoLog(fs, sizeof(infoLog), NULL, infoLog);
+		throw std::runtime_error(infoLog);
+	}
+
+	glAttachShader(prog, vs);
+	glAttachShader(prog, fs);
+	glLinkProgram(prog);
+
+	glGetProgramiv(_module_prog, GL_LINK_STATUS, &success);
+	if (!success) {
+		glGetProgramInfoLog(prog, sizeof(infoLog), NULL, infoLog);
+		throw std::runtime_error(infoLog);
+	}
+
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	return prog;
+}
+
+void stw::Module::init_vbo() {
+	GLfloat vertices[] = {
+		// positions         // texture coords
+		-1.0f,  1.0f, 0.0f,  0.0f, 1.0f,
+		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,
+		1.0f,  1.0f, 0.0f,  1.0f, 1.0f,
+		1.0f, -1.0f, 0.0f,  1.0f, 0.0f,
+	};
+
+	glGenVertexArrays(1, &_vao);
+	glGenBuffers(1, &_vbo);
+	glBindVertexArray(_vao);
+	glBindBuffer(GL_ARRAY_BUFFER, _vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), &vertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), reinterpret_cast<GLvoid*>(0));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), reinterpret_cast<GLvoid*>(3 * sizeof(GLfloat)));
+}
+
+void stw::Module::init_fbo() {
 	
-	GLint rsLoc = glGetUniformLocation(_handle, "iResolution");
-	glUniform2f(rsLoc, data.vpx, data.vpy);
+	glGenTextures(1, &_rt);
+	glBindTexture(GL_TEXTURE_2D, _rt);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, _res.x, _res.y, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glOrtho(0, 1, 0, 1, 0.1f, 2);
+	glGenFramebuffers(1, &_fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, _fbo);
+	glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, _rt, 0);
 
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-	glTranslatef(0, 0, -1.0);
+	GLenum db[] = { GL_COLOR_ATTACHMENT0 };
+	glDrawBuffers(1, db);
 
-	glBegin(GL_QUADS);
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		throw std::runtime_error("failed to create FBO");
 
-	glTexCoord2f(0, 0);
-	glVertex3f(0, 0, 0);
-
-	glTexCoord2f(1, 0);
-	glVertex3f(1, 0, 0);
-
-	glTexCoord2f(1, 1);
-	glVertex3f(1, 1, 0);
-
-	glTexCoord2f(0, 1);
-	glVertex3f(0, 1, 0);
-
-	glEnd();
-
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }

@@ -2,25 +2,39 @@
 #include <glew.h>
 #include <string>
 
-#include "api.h"
-
 namespace stw
 {
+	struct Resolution {
+		int x, y;
+	};
+
 	class Module {
 	public:
 		struct Uniform {
 			float timestamp;
-			float vpx, vpy;
+			//TODO: mouse coords
 		};
 
-		Module(const Api& api, const std::string& shaderId);
+		Module(const Resolution& res, const std::string& file);
 		~Module();
 		
 		void render(const Uniform& data) const;
 
 	private:
-		GLuint _handle;
-		GLuint _fs;
-		GLuint _vs;
+		GLuint load_program(const char* vertex, const char* fragment);
+
+		void init_vbo();
+		void init_fbo();
+
+		GLuint _module_prog;
+		GLuint _screen_prog;
+
+		GLuint _vbo;
+		GLuint _vao;
+
+		GLuint _fbo;
+		GLuint _rt;
+
+		Resolution _res;
 	};
 }
