@@ -61,18 +61,17 @@ void main() {
 )";
 
 
-stw::Module::Module(const Resolution& res, const std::string& file) : _res(res) {
+stw::Module::Module(const Resolution& res, const std::string& file) 
+	: _res(res) {
 
 	std::ifstream ifs(file);
-	std::stringstream buffer;
-	buffer << ifs.rdbuf();
-
-	std::string fragSource;
-	fragSource += module_frag_source;
-	fragSource += buffer.str();
-	fragSource += module_frag_body_source;
+	std::stringstream fragBuffer;
+	fragBuffer << module_frag_source;
+	fragBuffer << ifs.rdbuf();
+	fragBuffer << module_frag_body_source;
+	auto fragStr = fragBuffer.str();
 	
-	_module_prog = load_program(module_vertex_source, fragSource.c_str());
+	_module_prog = load_program(module_vertex_source, fragStr.c_str());
 	_screen_prog = load_program(screen_vertex_source, screen_frag_source);
 
 	init_vbo();
@@ -82,7 +81,12 @@ stw::Module::Module(const Resolution& res, const std::string& file) : _res(res) 
 }
 
 stw::Module::~Module() {
+	const GLuint buffers[] = { _vbo, _vao };
+	glDeleteBuffers(2, buffers);
+	glDeleteTextures(1, &_rt);
+	glDeleteFramebuffers(1, &_fbo);
 	glDeleteProgram(_module_prog);
+	glDeleteProgram(_screen_prog);
 }
 
 void stw::Module::render(const Uniform& data) const {
@@ -111,7 +115,7 @@ void stw::Module::render(const Uniform& data) const {
 	glBindVertexArray(0);
 }
 
-GLuint stw::Module::load_program(const char* vertex, const char* fragment) {
+GLuint stw::Module::load_program(const GLchar* vertex, const GLchar* fragment) {
 	auto prog = glCreateProgram();
 	auto vs = glCreateShader(GL_VERTEX_SHADER);
 	auto fs = glCreateShader(GL_FRAGMENT_SHADER);

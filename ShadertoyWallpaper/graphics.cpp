@@ -31,9 +31,6 @@ void stw::Graphics::run(const Module& module) {
 	_timestamp = std::chrono::high_resolution_clock::now();
 	_lastFrame = std::chrono::high_resolution_clock::now();
 
-	GLint vp[4];
-	glGetIntegerv(GL_VIEWPORT, vp);
-
 	for (;;) {
 		if (detect_fs_window()) {
 			//don't render when fs app is running
@@ -47,8 +44,8 @@ void stw::Graphics::run(const Module& module) {
 		auto time_span = current - _timestamp;
 		auto time = std::chrono::duration_cast<std::chrono::duration<float>>(time_span);
 
-		Module::Uniform data{
-			time.count(), //timestamp
+		Uniform data{
+			time.count()
 		};
 		module.render(data);
 
@@ -144,6 +141,11 @@ BOOL CALLBACK stw::Graphics::DetectFSWindow(HWND hwnd, LPARAM lparam) {
 	if (hRes != S_OK || cloakedVal)
 		return TRUE;
 
+	char windowTitle[100];
+	GetWindowText(hwnd, windowTitle, sizeof(windowTitle));
+	if (strlen(windowTitle) == 0 || strcmp(windowTitle, "Program Manager") == 0)
+		return TRUE;
+
 	const int sw = GetSystemMetrics(SM_CXSCREEN) - 200;
 	const int sh = GetSystemMetrics(SM_CYSCREEN) - 200;
 
@@ -151,11 +153,6 @@ BOOL CALLBACK stw::Graphics::DetectFSWindow(HWND hwnd, LPARAM lparam) {
 	GetWindowRect(hwnd, &appBounds);
 	auto appHeight = appBounds.bottom - appBounds.top;
 	auto appWidth = appBounds.right - appBounds.left;
-
-	char windowTitle[100];
-	GetWindowText(hwnd, windowTitle, sizeof(windowTitle));
-	if (strlen(windowTitle) == 0 || strcmp(windowTitle, "Program Manager") == 0)
-		return TRUE;
 
 	if (appWidth >= sw && appHeight >= sh) {
 		*reinterpret_cast<bool*>(lparam) = true;

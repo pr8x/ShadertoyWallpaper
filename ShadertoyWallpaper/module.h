@@ -8,20 +8,19 @@ namespace stw
 		int x, y;
 	};
 
+	struct Uniform {
+		float timestamp;
+	};
+
 	class Module {
 	public:
-		struct Uniform {
-			float timestamp;
-			//TODO: mouse coords
-		};
-
 		Module(const Resolution& res, const std::string& file);
 		~Module();
 		
 		void render(const Uniform& data) const;
 
 	private:
-		GLuint load_program(const char* vertex, const char* fragment);
+		GLuint load_program(const GLchar* vertex, const GLchar* fragment);
 
 		void init_vbo();
 		void init_fbo();
